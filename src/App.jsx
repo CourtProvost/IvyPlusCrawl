@@ -3,9 +3,10 @@ import SchoolPicker from "./SchoolPicker.jsx";
 import { ALL_SCHOOLS, SCHOOL_BY_ID } from "./schools.js";
 
 const QUICK_SEARCHES = [
-  "active shooter",
+  "active threat",
   "shelter in place",
   "network outage",
+  "weather warning",
   "campus closed",
   "statement to the community",
 ];
@@ -32,6 +33,64 @@ function prettyDate(iso) {
   });
 }
 
+function AlertsSection({ data }) {
+  if (data.error) {
+    return (
+      <section className="alerts">
+        <h2>Homepage alerts</h2>
+        <p className="error">{data.error}</p>
+      </section>
+    );
+  }
+  const withHits = data.results.filter((r) => r.alerts && r.alerts.length > 0);
+  const clear = data.results.filter((r) => r.status === "ok" && r.alerts.length === 0);
+  const failed = data.results.filter((r) => r.status === "error");
+  const names = (list) => list.map((r) => SCHOOL_BY_ID[r.schoolId].name).join(", ");
+
+  return (
+    <section className="alerts" aria-label="Homepage alerts">
+      <h2>
+        Homepage alerts: {withHits.length === 0 ? "none found" : `${withHits.length} ${withHits.length === 1 ? "school" : "schools"}`}
+      </h2>
+      <p className="alerts-note">
+        Read directly from each school's front page just now, using your words and related words. Open the page to
+        confirm. Banners added after a page loads may not appear here.
+      </p>
+
+      {withHits.map((r) => {
+        const school = SCHOOL_BY_ID[r.schoolId];
+        return (
+          <article key={r.schoolId} className="alert-school">
+            <h3>
+              <a href={school.url} target="_blank" rel="noopener noreferrer">{school.name}</a>
+            </h3>
+            <ul>
+              {r.alerts.map((a) => (
+                <li key={a.text}>
+                  <p className="alert-text">{a.text}</p>
+                  <p className="alert-meta">
+                    {a.kind === "banner" ? "In an alert or banner area" : "In the page text"}. Matched “{a.matched}”.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </article>
+        );
+      })}
+
+      {clear.length > 0 && (
+        <p className="alerts-clear">No matching text on the homepages of: {names(clear)}.</p>
+      )}
+      {failed.length > 0 && (
+        <p className="alerts-failed">
+          Could not read the homepage of: {failed.map((r) => `${SCHOOL_BY_ID[r.schoolId].name} (${r.message.replace(/\.$/, "")})`).join("; ")}.
+          Open these directly.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [selected, setSelected] = useState(() => new Set(ALL_SCHOOLS.map((s) => s.id)));
   const [query, setQuery] = useState("");
@@ -42,6 +101,8 @@ export default function App() {
   const [formError, setFormError] = useState("");
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState(null);
+  const [alerts, setAlerts] = useState(null);
+  const runId = useRef(0);
   const [fatal, setFatal] = useState("");
   const dialogRef = useRef(null);
 
@@ -88,6 +149,23 @@ export default function App() {
     const base = { query: term, from: range.from, to: range.to, mode: dateMode };
     const done = {};
     setResponse({ ...base, results: [] });
+
+    // Homepage check runs alongside the slower search and appears as soon as it finishes.
+    const thisRun = ++runId.current;
+    setAlerts(null);
+    fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: term, schoolIds: ids }),
+    })
+      .then(async (resp) => {
+        const data = await readReply(resp);
+        if (thisRun !== runId.current) return;
+        setAlerts(resp.ok && data.results ? data : { error: data.error || "The homepage check failed." });
+      })
+      .catch(() => {
+        if (thisRun === runId.current) setAlerts({ error: "The homepage check could not be reached." });
+      });
 
     let next = 0;
     async function worker() {
@@ -233,6 +311,8 @@ export default function App() {
 
           {fatal && <p className="error" role="alert">{fatal}</p>}
 
+          {alerts && <AlertsSection data={alerts} />}
+
           {response && (
             <>
               <div className="summary">
@@ -333,8 +413,8 @@ export default function App() {
       )}
 
       <footer className="footer">
-        Searches run only on official school domains and each search is limited to the first page of results to keep
-        water, electricity, and carbon use low.
+        Searches cover official school websites only and return up to 8 matches per school. Homepage alerts read each
+        school's front page directly. Always open the school's own page to confirm anything important.
       </footer>
     </div>
   );
