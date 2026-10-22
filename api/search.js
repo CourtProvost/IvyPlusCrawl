@@ -18,7 +18,7 @@ import { SCHOOL_BY_ID } from "../src/schools.js";
 const API_URL = "https://chat.dartmouth.edu/api/chat/completions";
 const MODEL = process.env.DARTMOUTH_CHAT_MODEL || "google.gemma-4-31B-it";
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 50000;
+const REQUEST_TIMEOUT_MS = 45000;
 const MAX_ITEMS = 8;
 const CONCURRENCY = 4;
 const cache = new Map();
