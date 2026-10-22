@@ -1,5 +1,10 @@
 {
   "functions": {
-    "api/search.js": { "maxDuration": 60 }
+    "api/search.js": {
+      "maxDuration": 60
+    },
+    "api/alerts.js": {
+      "maxDuration": 30
+    }
   }
 }
