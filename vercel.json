@@ -4,7 +4,7 @@
       "maxDuration": 60
     },
     "api/alerts.js": {
-      "maxDuration": 30
+      "maxDuration": 45
     }
   }
 }
