@@ -100,7 +100,7 @@ async function searchOneSchool(school, query, from, to) {
     `Search the web for: ${query.trim()} site:${school.domain}\n\n` +
     `Using only what the search returns, list pages on ${school.domain} (including its subdomains) about this topic ` +
     `that were posted between ${from} and ${to}. Take each posting date from the page itself and never guess one; ` +
-    `use null when no date is shown. Do not invent pages or links.\n` +
+    `use null when no date is shown. Do not invent pages or links. Give extra weight to pages from provost, president or university statement, communications and news, community update, and IT status sections.\n` +
     `Reply with a JSON array only, no other text, with at most ${MAX_ITEMS} objects shaped like:\n` +
     `{"title": string, "url": string, "summary": string (one short sentence), "published": "YYYY-MM-DD" or null}\n` +
     `If nothing matches, reply with [].`;
