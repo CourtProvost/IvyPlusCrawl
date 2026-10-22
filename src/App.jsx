@@ -237,7 +237,9 @@ export default function App() {
             <>
               <div className="summary">
                 <h2>
-                  {totalHits} {totalHits === 1 ? "match" : "matches"} for “{response.query}”
+                  {loading
+                    ? `Searching for “${response.query}”: ${response.results.length} of ${selected.size} schools finished`
+                    : `${totalHits} ${totalHits === 1 ? "match" : "matches"} for “${response.query}”`}
                 </h2>
                 <p>
                   Posted {prettyDate(response.from)} to {prettyDate(response.to)}. Official school domains only.
