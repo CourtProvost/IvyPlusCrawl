@@ -4,7 +4,7 @@ Search the official websites of 12 Ivy+ peer schools for a keyword, limited to r
 
 How it works
 The React front end (Dartmouth styling) sends one request to /api/search.
-The Vercel serverless function asks OpenAI (Responses API, web_search tool limited to that school's domain) for matching pages per selected school, and keeps only results whose host matches that school's domain and whose posting date falls in the chosen window. Pages with no visible date are kept but labeled.
+The Vercel serverless function sends each school's search to the Dartmouth Chat API (chat.dartmouth.edu/api) with web search turned on, and keeps only results whose host matches that school's domain and whose posting date falls in the chosen window. Pages with no visible date are kept but labeled.
 Default window is the last 3 days. Choosing a date range shows a warning that older pages may be out of date, archived, or no longer available.
 The API key stays on the server and is never sent to the browser.
 Folder structure
@@ -29,7 +29,7 @@ ivy-plus-watch/
 Deploy (GitHub + Vercel)
 Create a GitHub repo and push this folder.
 In Vercel, choose Add New > Project and import the repo. Framework preset: Vite.
-Add the environment variable OPENAI_API_KEY (Settings > Environment Variables), then redeploy.
+Add the environment variable DARTMOUTH_CHAT_API_KEY (Settings > Environment Variables), then redeploy.
 Consider turning on Vercel Authentication or Dartmouth SSO so only staff can open it.
 Local testing
 
@@ -41,7 +41,7 @@ Results are cached on the server for 10 minutes, so repeat searches cost nothing
 Searches run only when someone presses the button (no background polling).
 The quick-search chips run a single search each.
 Things to confirm
-Model: set OPENAI_MODEL in Vercel to a small, low-cost model on your account if gpt-5-mini is not available.
+Model: set DARTMOUTH_CHAT_MODEL in Vercel to change the model (default google.gemma-4-31B-it).
 Brand fonts: src/styles.css lists Hanover and Public Sans first, with system fallbacks. Add the licensed font files if you have them, or change the two font variables at the top of the file.
 Brand colors: check the hex values at the top of src/styles.css against the current brand guide.
 Search coverage: web search indexes lag behind live pages by minutes to hours. For an active emergency, also check each school's emergency or alert page directly.
