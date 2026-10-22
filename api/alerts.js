@@ -2,27 +2,33 @@
 //
 // Body: { query: string, schoolIds: string[] }
 //
-// Reads each selected school's front page directly (no AI model, one small request per school)
-// and looks for the search words plus related words, so a banner like "Some University websites
-// and systems may be unavailable" is found when someone searches "network outage".
+// For each selected school, with plain web requests (no AI model):
+//  1. Reads the front page and looks for the search words plus related words.
+//  2. Lists notices and statements linked from the front page, whether or not they match the search.
+//  3. Finds the school's Provost, Statements, Communications and news, Community, and IT pages
+//     (from the front page's links, or from src/priorityPages.js), reads each one, and returns its
+//     newest items and any lines that match the search.
 //
-// Limits: this reads the page as the server delivers it. Banners that a page adds after it loads
-// can be missed, and some sites block automated requests. Results are labeled accordingly.
+// Limits: this reads pages as the server delivers them. Content a page adds after it loads can be
+// missed, some sites block automated requests, and pages hidden in menus built by scripts may not be
+// found automatically. Anything not found or not readable is reported, never hidden.
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
+import { PINNED } from "../src/priorityPages.js";
  
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 10000;
+const FETCH_TIMEOUT_MS = 8000;
 const MAX_HTML_CHARS = 1500000;
 const MAX_ALERTS_PER_SCHOOL = 5;
+const MAX_FEATURED_PER_SCHOOL = 6;
+const MAX_ITEMS_PER_PAGE = 5;
 const cache = new Map();
  
-// Related words. A group applies when the search contains any of its triggers.
-// Edit these lists freely. Use whole words or short phrases; avoid very short words that
-// appear inside other words.
+// ---------------------------------------------------------------- related words
+ 
+// A group applies when the search contains any of its triggers. Edit freely.
 const RELATED = [
   {
-    name: "outage",
     triggers: ["outage", "outages", "network", "down", "unavailable", "disruption", "offline", "php"],
     terms: [
       "network outage", "outage", "outages", "unavailable", "disruption", "disruptions", "disrupted",
@@ -32,7 +38,6 @@ const RELATED = [
     ],
   },
   {
-    name: "threat",
     triggers: ["threat", "shooter", "shooting", "gunman", "armed", "weapon", "lockdown", "shelter", "violence"],
     terms: [
       "active threat", "active shooter", "shooter", "shooting", "gunman", "armed person", "armed individual",
@@ -42,7 +47,6 @@ const RELATED = [
     ],
   },
   {
-    name: "weather",
     triggers: ["weather", "storm", "snow", "flood", "hurricane", "tornado", "blizzard", "warning", "advisory", "ice"],
     terms: [
       "weather warning", "weather alert", "weather advisory", "severe weather", "winter storm", "blizzard",
@@ -52,7 +56,6 @@ const RELATED = [
     ],
   },
   {
-    name: "closure",
     triggers: ["closed", "closure", "closing", "cancelled", "canceled", "delayed", "suspended", "campus"],
     terms: [
       "campus closed", "campus closure", "university closed", "closed today", "delayed opening",
@@ -61,7 +64,6 @@ const RELATED = [
     ],
   },
   {
-    name: "emergency",
     triggers: ["emergency", "alert", "urgent", "safety"],
     terms: ["emergency", "alert", "urgent", "campus safety", "safety alert", "important notice"],
   },
@@ -84,7 +86,6 @@ export function expandTerms(query) {
 }
  
 function buildMatcher(terms) {
-  // Longest first so the most specific term is reported.
   const sorted = [...terms].sort((a, b) => b.length - a.length);
   const re = new RegExp("(?<![A-Za-z0-9])(" + sorted.map(escapeRe).join("|") + ")(?![A-Za-z0-9])", "i");
   return (text) => {
@@ -92,6 +93,12 @@ function buildMatcher(terms) {
     return m ? m[1].toLowerCase() : null;
   };
 }
+ 
+// Phrases that signal a notice or statement worth showing even when the search words do not match.
+const ATTENTION =
+  /\b(statements?|message from|message to the|letter to the|update on|allegations?|alleged|investigations?|sexual (violence|misconduct|assault|harassment)|title ix|campus safety|safety alert|incident|tragedy|tragic|mourning|condolences|memorial|vigil|protests?|encampment|lockdown|shooting|threat|outage|unavailable|community (update|message|safety)|resources for (students|the community))\b/i;
+ 
+// ---------------------------------------------------------------- html helpers
  
 function decodeEntities(s) {
   const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', ndash: "-", mdash: "-", hellip: "..." };
@@ -115,34 +122,8 @@ function htmlToLines(html) {
     .filter((l) => l.length > 0);
 }
  
-const BANNER_OPEN =
-  /<(?:div|section|aside|header|p|span|a|li)\b[^>]*\b(?:class|id|role|aria-label)\s*=\s*["'][^"']*(?:alert|banner|emergency|notice|announcement|urgent|advisory)[^"']*["'][^>]*>/gi;
- 
-export function analyzeHtml(html, terms) {
-  const match = buildMatcher(terms);
-  const found = new Map(); // text -> { text, kind, matched }
- 
-  const add = (line, kind) => {
-    if (line.length < 15 || line.length > 400) return;
-    const matched = match(line);
-    if (!matched) return;
-    const prev = found.get(line);
-    if (!prev || (kind === "banner" && prev.kind !== "banner")) found.set(line, { text: line, kind, matched });
-  };
- 
-  // 1. Areas whose markup says alert, banner, emergency, notice, and so on.
-  let m;
-  while ((m = BANNER_OPEN.exec(html)) !== null) {
-    const chunk = html.slice(m.index + m[0].length, m.index + m[0].length + 1500);
-    htmlToLines(chunk).slice(0, 6).forEach((l) => add(l, "banner"));
-  }
- 
-  // 2. Everything else on the page.
-  htmlToLines(html).forEach((l) => add(l, "page"));
- 
-  return [...found.values()]
-    .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "banner" ? -1 : 1))
-    .slice(0, MAX_ALERTS_PER_SCHOOL);
+function cleanInline(html) {
+  return decodeEntities(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 }
  
 function hostBelongsToDomain(url, domain) {
@@ -154,11 +135,213 @@ function hostBelongsToDomain(url, domain) {
   }
 }
  
-async function checkOneSchool(school, terms) {
+const ANCHOR_RE = /<a\b[^>]*?href\s*=\s*["']([^"'][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+ 
+function resolveUrl(href, base, domain) {
+  if (/^(mailto:|tel:|javascript:|#)/i.test(href)) return null;
+  try {
+    const u = new URL(href, base);
+    if (!/^https?:$/.test(u.protocol)) return null;
+    if (!hostBelongsToDomain(u.href, domain)) return null;
+    if (/\.(pdf|docx?|xlsx?|pptx?|jpe?g|png|gif|zip|mp4)(\?|$)/i.test(u.pathname)) return null;
+    u.hash = "";
+    return u.href;
+  } catch {
+    return null;
+  }
+}
+ 
+function allAnchors(html, base, domain) {
+  const out = [];
+  const re = new RegExp(ANCHOR_RE.source, "gi");
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const url = resolveUrl(m[1], base, domain);
+    if (!url) continue;
+    const text = cleanInline(m[2]);
+    if (!text) continue;
+    out.push({ url, text, index: m.index, raw: m[0] });
+  }
+  return out;
+}
+ 
+// ---------------------------------------------------------------- dates
+ 
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+ 
+function iso(y, m, d) {
+  if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
+  const s = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  return s <= tomorrow ? s : null;
+}
+ 
+export function findDate(text) {
+  let m = text.match(/datetime\s*=\s*["'](\d{4})-(\d{2})-(\d{2})/i);
+  if (m) return iso(+m[1], +m[2], +m[3]);
+  m = text.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b/i);
+  if (m) return iso(+m[3], MONTHS[m[1].toLowerCase().slice(0, 3)], +m[2]);
+  m = text.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+(20\d{2})\b/i);
+  if (m) return iso(+m[3], MONTHS[m[2].toLowerCase().slice(0, 3)], +m[1]);
+  m = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (m) return iso(+m[1], +m[2], +m[3]);
+  m = text.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
+  if (m) return iso(+m[3], +m[1], +m[2]);
+  return null;
+}
+ 
+// ---------------------------------------------------------------- front page analysis
+ 
+const BANNER_OPEN =
+  /<(?:div|section|aside|header|p|span|a|li)\b[^>]*\b(?:class|id|role|aria-label)\s*=\s*["'][^"']*(?:alert|banner|emergency|notice|announcement|urgent|advisory)[^"']*["'][^>]*>/gi;
+const NOT_A_NOTICE = /cookie|consent|privacy|gdpr|skip|search|newsletter/i;
+ 
+export function analyzeHtml(html, terms) {
+  const match = buildMatcher(terms);
+  const found = new Map();
+ 
+  const add = (line, kind) => {
+    if (line.length < 15 || line.length > 400) return;
+    const matched = match(line);
+    if (!matched) return;
+    const prev = found.get(line);
+    if (!prev || (kind === "banner" && prev.kind !== "banner")) found.set(line, { text: line, kind, matched });
+  };
+ 
+  const re = new RegExp(BANNER_OPEN.source, "gi");
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (NOT_A_NOTICE.test(m[0])) continue;
+    const chunk = html.slice(m.index + m[0].length, m.index + m[0].length + 1500);
+    htmlToLines(chunk).slice(0, 6).forEach((l) => add(l, "banner"));
+  }
+  htmlToLines(html).forEach((l) => add(l, "page"));
+ 
+  return [...found.values()]
+    .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "banner" ? -1 : 1))
+    .slice(0, MAX_ALERTS_PER_SCHOOL);
+}
+ 
+// Links the school features on its front page: anything inside an alert or banner area, plus any
+// link whose wording signals a statement or incident. Shown whether or not it matches the search.
+export function featuredLinks(html, base, domain) {
+  const found = new Map();
+  const put = (a, why) => {
+    if (a.text.length < 12 || a.text.length > 220) return;
+    if (!found.has(a.url)) found.set(a.url, { text: a.text, url: a.url, why });
+  };
+ 
+  const re = new RegExp(BANNER_OPEN.source, "gi");
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    if (NOT_A_NOTICE.test(m[0])) continue;
+    const chunk = html.slice(m.index, m.index + m[0].length + 1500);
+    allAnchors(chunk, base, domain).forEach((a) => put(a, "banner"));
+  }
+  allAnchors(html, base, domain)
+    .filter((a) => ATTENTION.test(a.text))
+    .forEach((a) => put(a, "headline"));
+ 
+  return [...found.values()].slice(0, MAX_FEATURED_PER_SCHOOL);
+}
+ 
+// ---------------------------------------------------------------- priority pages
+ 
+const CATEGORIES = [
+  {
+    id: "provost",
+    label: "Provost",
+    href: /provost/i,
+    text: (t) => /provost/i.test(t),
+  },
+  {
+    id: "statements",
+    label: "Statements",
+    href: /statement|president[^/]*(message|letter|communication)|messages?-from/i,
+    text: (t) => /\bstatements?\b|message from|messages from|letter from|message to the/i.test(t),
+  },
+  {
+    id: "communications",
+    label: "Communications and news",
+    href: /communications?|newsroom|\/news\b|\/\/news\./i,
+    text: (t) => /communications?|newsroom|^news$|university news|^news (&|and) |media relations/i.test(t),
+  },
+  {
+    id: "community",
+    label: "Community",
+    href: /community/i,
+    text: (t) => /community/i.test(t),
+  },
+  {
+    id: "it",
+    label: "IT",
+    href: /information-technology|technology-services|it-services|\/\/its?\.|huit|\/\/uis\.|\/\/status\.|service-status/i,
+    text: (t) => /\b(IT|ITS|HUIT|UIS)\b/.test(t) || /information technology|technology services|systems? status|service status/i.test(t),
+  },
+];
+ 
+export function discoverCategories(html, base, domain) {
+  const anchors = allAnchors(html, base, domain).filter((a) => a.text.length <= 120);
+  const best = {};
+  for (const cat of CATEGORIES) {
+    let top = null;
+    for (const a of anchors) {
+      const textHit = cat.text(a.text);
+      const hrefHit = cat.href.test(a.url);
+      if (!textHit && !hrefHit) continue;
+      const u = new URL(a.url);
+      let score = (textHit ? 5 : 0) + (hrefHit ? 4 : 0);
+      if (textHit && hrefHit) score += 2;
+      if (u.pathname === "/" || u.pathname === "") score += 2; // a section's own front page
+      score -= a.url.length / 120; // shorter, broader addresses win ties
+      if (!top || score > top.score) top = { url: a.url, text: a.text, score };
+    }
+    if (top) best[cat.id] = top.url;
+  }
+  return best;
+}
+ 
+export function latestItems(html, base, domain) {
+  const main = html.match(/<main\b[\s\S]*?<\/main>/i);
+  const region = main ? main[0] : html;
+ 
+  // Collect headline-sized links first, so each item's date can be read from the text
+  // between it and its neighbors only (not from a neighboring item).
+  const found = [];
+  const seen = new Set();
+  const re = new RegExp(ANCHOR_RE.source, "gi");
+  let m;
+  while ((m = re.exec(region)) !== null && found.length < 60) {
+    const text = cleanInline(m[2]);
+    if (text.length < 25 || text.length > 220) continue;
+    const url = resolveUrl(m[1], base, domain);
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    found.push({ title: text, url, start: m.index, end: m.index + m[0].length });
+  }
+ 
+  const items = found.map((f, i) => {
+    const before = region.slice(Math.max(i > 0 ? found[i - 1].end : 0, f.start - 400), f.start);
+    const after = region.slice(f.end, Math.min(i + 1 < found.length ? found[i + 1].start : region.length, f.end + 300));
+    return { title: f.title, url: f.url, date: findDate(before) || findDate(after), order: i };
+  });
+ 
+  items.sort((a, b) => {
+    if (a.date && b.date) return b.date.localeCompare(a.date) || a.order - b.order;
+    if (a.date) return -1;
+    if (b.date) return 1;
+    return a.order - b.order;
+  });
+  return items.slice(0, MAX_ITEMS_PER_PAGE).map(({ title, url, date }) => ({ title, url, date }));
+}
+ 
+// ---------------------------------------------------------------- fetching
+ 
+async function fetchPage(url, domain) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const resp = await fetch(school.url, {
+    const resp = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; IvyPlusPeerWatch/1.0; internal monitoring)",
         Accept: "text/html,application/xhtml+xml",
@@ -166,29 +349,75 @@ async function checkOneSchool(school, terms) {
       redirect: "follow",
       signal: controller.signal,
     });
-    if (!hostBelongsToDomain(resp.url, school.domain)) {
-      return { schoolId: school.id, status: "error", message: "The homepage redirected away from the official domain.", alerts: [] };
+    if (!hostBelongsToDomain(resp.url, domain)) {
+      return { ok: false, message: "The page redirected away from the official domain." };
     }
     if (!resp.ok) {
       return {
-        schoolId: school.id,
-        status: "error",
-        message: `The homepage returned ${resp.status}${resp.status === 403 ? " (the site may block automated reading)" : ""}.`,
-        alerts: [],
+        ok: false,
+        message: `The page returned ${resp.status}${resp.status === 403 ? " (the site may block automated reading)" : ""}.`,
       };
     }
     const html = (await resp.text()).slice(0, MAX_HTML_CHARS);
-    return { schoolId: school.id, status: "ok", alerts: analyzeHtml(html, terms) };
+    return { ok: true, html, finalUrl: resp.url };
   } catch (err) {
-    return {
-      schoolId: school.id,
-      status: "error",
-      message: err.name === "AbortError" ? "The homepage took too long to load." : "The homepage could not be read.",
-      alerts: [],
-    };
+    return { ok: false, message: err.name === "AbortError" ? "The page took too long to load." : "The page could not be read." };
   } finally {
     clearTimeout(timer);
   }
+}
+ 
+async function readPriorityPage(cat, url, school, terms, pinned) {
+  const page = await fetchPage(url, school.domain);
+  if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, items: [], matches: [] };
+  return {
+    category: cat.id,
+    label: cat.label,
+    url,
+    pinned,
+    status: "ok",
+    items: latestItems(page.html, page.finalUrl, school.domain),
+    matches: analyzeHtml(page.html, terms).filter((a) => a.kind === "page" || a.kind === "banner").slice(0, 3),
+  };
+}
+ 
+async function checkOneSchool(school, terms) {
+  const home = await fetchPage(school.url, school.domain);
+  const pinnedForSchool = PINNED[school.id] || {};
+ 
+  // Choose pages: pinned first, then whatever the front page links to.
+  const discovered = home.ok ? discoverCategories(home.html, home.finalUrl, school.domain) : {};
+  const plan = [];
+  const missing = [];
+  for (const cat of CATEGORIES) {
+    const pins = [].concat(pinnedForSchool[cat.id] || []).filter((u) => hostBelongsToDomain(u, school.domain));
+    if (pins.length) pins.forEach((u) => plan.push({ cat, url: u, pinned: true }));
+    else if (discovered[cat.id]) plan.push({ cat, url: discovered[cat.id], pinned: false });
+    else missing.push(cat.label);
+  }
+ 
+  const sections = await Promise.all(plan.map((p) => readPriorityPage(p.cat, p.url, school, terms, p.pinned)));
+ 
+  if (!home.ok) {
+    return {
+      schoolId: school.id,
+      status: "error",
+      message: home.message.replace("The page", "The homepage"),
+      alerts: [],
+      featured: [],
+      sections,
+      missing,
+    };
+  }
+ 
+  return {
+    schoolId: school.id,
+    status: "ok",
+    alerts: analyzeHtml(home.html, terms),
+    featured: featuredLinks(home.html, home.finalUrl, school.domain),
+    sections,
+    missing,
+  };
 }
  
 export default async function handler(req, res) {
