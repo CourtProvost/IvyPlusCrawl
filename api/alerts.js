@@ -2,12 +2,13 @@
 //
 // Body: { query: string, schoolIds: string[] }
 //
-// For each selected school, with plain web requests (no AI model):
-//  1. Reads the front page and looks for the search words plus related words.
-//  2. Lists notices and statements linked from the front page, whether or not they match the search.
-//  3. Finds the school's Provost, Statements, Communications and news, Community, and IT pages
-//     (from the front page's links, or from src/priorityPages.js), reads each one, and returns its
-//     newest items and any lines that match the search.
+// For each selected school, with plain web requests (no AI model), looks for the search words plus
+// related words on:
+//  - the front page
+//  - the school's Provost, Statements, Communications and news, Community, and IT pages
+//    (found from the front page's links, or pinned in src/priorityPages.js)
+// and returns only the lines that match. Optionally (includeFeatured) it also lists notices and
+// statements linked from the front page whether or not they match.
 //
 // Limits: this reads pages as the server delivers them. Content a page adds after it loads can be
 // missed, some sites block automated requests, and pages hidden in menus built by scripts may not be
@@ -21,7 +22,6 @@ const FETCH_TIMEOUT_MS = 8000;
 const MAX_HTML_CHARS = 1500000;
 const MAX_ALERTS_PER_SCHOOL = 5;
 const MAX_FEATURED_PER_SCHOOL = 6;
-const MAX_ITEMS_PER_PAGE = 5;
 const cache = new Map();
  
 // ---------------------------------------------------------------- related words
@@ -165,31 +165,6 @@ function allAnchors(html, base, domain) {
   return out;
 }
  
-// ---------------------------------------------------------------- dates
- 
-const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
- 
-function iso(y, m, d) {
-  if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
-  const s = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  return s <= tomorrow ? s : null;
-}
- 
-export function findDate(text) {
-  let m = text.match(/datetime\s*=\s*["'](\d{4})-(\d{2})-(\d{2})/i);
-  if (m) return iso(+m[1], +m[2], +m[3]);
-  m = text.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20\d{2})\b/i);
-  if (m) return iso(+m[3], MONTHS[m[1].toLowerCase().slice(0, 3)], +m[2]);
-  m = text.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s+(20\d{2})\b/i);
-  if (m) return iso(+m[3], MONTHS[m[2].toLowerCase().slice(0, 3)], +m[1]);
-  m = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
-  if (m) return iso(+m[1], +m[2], +m[3]);
-  m = text.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
-  if (m) return iso(+m[3], +m[1], +m[2]);
-  return null;
-}
- 
 // ---------------------------------------------------------------- front page analysis
  
 const BANNER_OPEN =
@@ -301,40 +276,6 @@ export function discoverCategories(html, base, domain) {
   return best;
 }
  
-export function latestItems(html, base, domain) {
-  const main = html.match(/<main\b[\s\S]*?<\/main>/i);
-  const region = main ? main[0] : html;
- 
-  // Collect headline-sized links first, so each item's date can be read from the text
-  // between it and its neighbors only (not from a neighboring item).
-  const found = [];
-  const seen = new Set();
-  const re = new RegExp(ANCHOR_RE.source, "gi");
-  let m;
-  while ((m = re.exec(region)) !== null && found.length < 60) {
-    const text = cleanInline(m[2]);
-    if (text.length < 25 || text.length > 220) continue;
-    const url = resolveUrl(m[1], base, domain);
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    found.push({ title: text, url, start: m.index, end: m.index + m[0].length });
-  }
- 
-  const items = found.map((f, i) => {
-    const before = region.slice(Math.max(i > 0 ? found[i - 1].end : 0, f.start - 400), f.start);
-    const after = region.slice(f.end, Math.min(i + 1 < found.length ? found[i + 1].start : region.length, f.end + 300));
-    return { title: f.title, url: f.url, date: findDate(before) || findDate(after), order: i };
-  });
- 
-  items.sort((a, b) => {
-    if (a.date && b.date) return b.date.localeCompare(a.date) || a.order - b.order;
-    if (a.date) return -1;
-    if (b.date) return 1;
-    return a.order - b.order;
-  });
-  return items.slice(0, MAX_ITEMS_PER_PAGE).map(({ title, url, date }) => ({ title, url, date }));
-}
- 
 // ---------------------------------------------------------------- fetching
  
 async function fetchPage(url, domain) {
@@ -369,19 +310,18 @@ async function fetchPage(url, domain) {
  
 async function readPriorityPage(cat, url, school, terms, pinned) {
   const page = await fetchPage(url, school.domain);
-  if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, items: [], matches: [] };
+  if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, matches: [] };
   return {
     category: cat.id,
     label: cat.label,
     url,
     pinned,
     status: "ok",
-    items: latestItems(page.html, page.finalUrl, school.domain),
-    matches: analyzeHtml(page.html, terms).filter((a) => a.kind === "page" || a.kind === "banner").slice(0, 3),
+    matches: analyzeHtml(page.html, terms).slice(0, 3),
   };
 }
  
-async function checkOneSchool(school, terms) {
+async function checkOneSchool(school, terms, includeFeatured) {
   const home = await fetchPage(school.url, school.domain);
   const pinnedForSchool = PINNED[school.id] || {};
  
@@ -414,7 +354,7 @@ async function checkOneSchool(school, terms) {
     schoolId: school.id,
     status: "ok",
     alerts: analyzeHtml(home.html, terms),
-    featured: featuredLinks(home.html, home.finalUrl, school.domain),
+    featured: includeFeatured ? featuredLinks(home.html, home.finalUrl, school.domain) : [],
     sections,
     missing,
   };
@@ -427,6 +367,7 @@ export default async function handler(req, res) {
   }
  
   const { query, schoolIds } = req.body || {};
+  const includeFeatured = req.body?.includeFeatured === true;
   if (typeof query !== "string" || query.trim().length < 2 || query.length > 100) {
     return res.status(400).json({ error: "Enter a search term between 2 and 100 characters." });
   }
@@ -436,13 +377,13 @@ export default async function handler(req, res) {
  
   const ids = [...new Set(schoolIds)].sort();
   const terms = expandTerms(query);
-  const cacheKey = JSON.stringify([terms, ids]);
+  const cacheKey = JSON.stringify([terms, ids, includeFeatured]);
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return res.status(200).json({ ...hit.payload, cached: true });
   }
  
-  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms)));
+  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, includeFeatured)));
   const payload = { query: query.trim(), checkedAt: new Date().toISOString(), terms, results };
  
   if (results.every((r) => r.status === "ok")) {
