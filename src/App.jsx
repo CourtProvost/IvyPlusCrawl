@@ -37,27 +37,44 @@ function AlertsSection({ data }) {
   if (data.error) {
     return (
       <section className="alerts">
-        <h2>Homepage alerts</h2>
+        <h2>Homepage and key pages</h2>
         <p className="error">{data.error}</p>
       </section>
     );
   }
-  const withHits = data.results.filter((r) => r.alerts && r.alerts.length > 0);
-  const clear = data.results.filter((r) => r.status === "ok" && r.alerts.length === 0);
-  const failed = data.results.filter((r) => r.status === "error");
+
+  const nameOf = (r) => SCHOOL_BY_ID[r.schoolId].name;
+  const sectionsOf = (r) => r.sections || [];
+  const matchesOf = (r) => [
+    ...(r.alerts || []).map((a) => ({ ...a, where: "Homepage", url: SCHOOL_BY_ID[r.schoolId].url })),
+    ...sectionsOf(r).flatMap((s) => (s.matches || []).map((a) => ({ ...a, where: s.label, url: s.url }))),
+  ];
+  const pagesRead = (r) => ["Homepage", ...sectionsOf(r).filter((s) => s.status === "ok").map((s) => s.label)];
+
+  const withHits = data.results.filter((r) => matchesOf(r).length > 0);
+  const clear = data.results.filter((r) => r.status === "ok" && matchesOf(r).length === 0);
   const withFeatured = data.results.filter((r) => r.featured && r.featured.length > 0);
-  const withPages = data.results.filter((r) => (r.sections && r.sections.length > 0) || (r.missing && r.missing.length > 0));
-  const names = (list) => list.map((r) => SCHOOL_BY_ID[r.schoolId].name).join(", ");
+
+  // Anything that could not be read, so a missing match is never mistaken for an all clear.
+  const problems = [];
+  data.results.forEach((r) => {
+    if (r.status === "error") problems.push(`${nameOf(r)} homepage (${r.message.replace(/^The homepage /, "").replace(/\.$/, "")})`);
+    sectionsOf(r).filter((s) => s.status === "error").forEach((s) =>
+      problems.push(`${nameOf(r)} ${s.label} page (${s.message.replace(/^The page /, "").replace(/\.$/, "")})`)
+    );
+  });
+  const notFound = data.results.filter((r) => r.missing && r.missing.length > 0);
 
   return (
     <>
-      <section className="alerts" aria-label="Homepage alerts">
+      <section className="alerts" aria-label="Homepage and key pages">
         <h2>
-          Homepage alerts: {withHits.length === 0 ? "none found" : `${withHits.length} ${withHits.length === 1 ? "school" : "schools"}`}
+          Homepage and key pages: {withHits.length === 0 ? "no matches" : `${withHits.length} ${withHits.length === 1 ? "school" : "schools"} with matches`}
         </h2>
         <p className="alerts-note">
-          Read directly from each school's front page just now, using your words and related words. Open the page to
-          confirm. Banners added after a page loads may not appear here.
+          Read directly just now from each school's front page and its Provost, Statements, Communications and news,
+          Community, and IT pages, looking only for your words and related words. Open the page to confirm.
+          Content added after a page loads may not appear here.
         </p>
 
         {withHits.map((r) => {
@@ -68,11 +85,11 @@ function AlertsSection({ data }) {
                 <a href={school.url} target="_blank" rel="noopener noreferrer">{school.name}</a>
               </h3>
               <ul>
-                {r.alerts.map((a) => (
-                  <li key={a.text}>
+                {matchesOf(r).map((a) => (
+                  <li key={a.where + a.text}>
                     <p className="alert-text">{a.text}</p>
                     <p className="alert-meta">
-                      {a.kind === "banner" ? "In an alert or banner area" : "In the page text"}. Matched “{a.matched}”.
+                      On the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a> page. Matched “{a.matched}”.
                     </p>
                   </li>
                 ))}
@@ -82,13 +99,32 @@ function AlertsSection({ data }) {
         })}
 
         {clear.length > 0 && (
-          <p className="alerts-clear">No matching text on the homepages of: {names(clear)}.</p>
+          <details className="alerts-clear">
+            <summary>No matches at {clear.length} {clear.length === 1 ? "school" : "schools"}</summary>
+            <ul className="clear-list">
+              {clear.map((r) => (
+                <li key={r.schoolId}>
+                  {nameOf(r)}: checked {pagesRead(r).join(", ")}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
-        {failed.length > 0 && (
-          <p className="alerts-failed">
-            Could not read the homepage of: {failed.map((r) => `${SCHOOL_BY_ID[r.schoolId].name} (${r.message.replace(/\.$/, "")})`).join("; ")}.
-            Open these directly.
-          </p>
+
+        {problems.length > 0 && (
+          <p className="alerts-failed">Could not read: {problems.join("; ")}. Open these directly.</p>
+        )}
+
+        {notFound.length > 0 && (
+          <details className="alerts-clear">
+            <summary>Pages not found automatically</summary>
+            <ul className="clear-list">
+              {notFound.map((r) => (
+                <li key={r.schoolId}>{nameOf(r)}: {r.missing.join(", ")}</li>
+              ))}
+            </ul>
+            <p className="alert-meta">Pin these addresses in src/priorityPages.js so they are always checked.</p>
+          </details>
         )}
       </section>
 
@@ -118,69 +154,6 @@ function AlertsSection({ data }) {
           })}
         </section>
       )}
-
-      {withPages.length > 0 && (
-        <section className="priority" aria-label="Priority pages">
-          <h2>Priority pages</h2>
-          <p className="alerts-note">
-            Provost, Statements, Communications and news, Community, and IT pages, read just now. Newest items first.
-            Dates are read from each page and can be wrong, so open the page to confirm.
-          </p>
-          {withPages.map((r) => {
-            const school = SCHOOL_BY_ID[r.schoolId];
-            const matchCount = (r.sections || []).reduce((n, s) => n + (s.matches ? s.matches.length : 0), 0);
-            return (
-              <details key={r.schoolId} className="priority-school" open={matchCount > 0}>
-                <summary>
-                  <span className="priority-name">{school.name}</span>
-                  <span className="school-count">
-                    {(r.sections || []).length} {(r.sections || []).length === 1 ? "page" : "pages"}
-                    {matchCount > 0 ? `, ${matchCount} ${matchCount === 1 ? "match" : "matches"}` : ""}
-                  </span>
-                </summary>
-
-                {(r.sections || []).map((s) => (
-                  <div key={s.url} className="priority-page">
-                    <h4>
-                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>
-                      {s.pinned && <span className="pin"> pinned</span>}
-                    </h4>
-                    {s.status === "error" && <p className="error">{s.message}</p>}
-                    {s.matches && s.matches.length > 0 && (
-                      <ul className="priority-matches">
-                        {s.matches.map((a) => (
-                          <li key={a.text}>
-                            <strong>{a.text}</strong> <span className="alert-meta">Matched “{a.matched}”</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {s.status === "ok" && s.items.length === 0 && (
-                      <p className="none">No recent items could be read from this page.</p>
-                    )}
-                    {s.items.length > 0 && (
-                      <ul className="priority-items">
-                        {s.items.map((it) => (
-                          <li key={it.url}>
-                            <a href={it.url} target="_blank" rel="noopener noreferrer">{it.title}</a>
-                            <span className="alert-meta"> {it.date ? prettyDate(it.date) : "No date shown"}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-
-                {r.missing && r.missing.length > 0 && (
-                  <p className="alerts-failed">
-                    Not found automatically: {r.missing.join(", ")}. Pin these addresses in src/priorityPages.js.
-                  </p>
-                )}
-              </details>
-            );
-          })}
-        </section>
-      )}
     </>
   );
 }
@@ -196,6 +169,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState(null);
   const [alerts, setAlerts] = useState(null);
+  const [showFeatured, setShowFeatured] = useState(false);
   const runId = useRef(0);
   const [fatal, setFatal] = useState("");
   const dialogRef = useRef(null);
@@ -250,7 +224,7 @@ export default function App() {
     fetch("/api/alerts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, schoolIds: ids }),
+      body: JSON.stringify({ query: term, schoolIds: ids, includeFeatured: showFeatured }),
     })
       .then(async (resp) => {
         const data = await readReply(resp);
@@ -377,6 +351,11 @@ export default function App() {
               </p>
             </div>
           )}
+
+          <label className="check">
+            <input type="checkbox" checked={showFeatured} onChange={(e) => setShowFeatured(e.target.checked)} />
+            <span>Also show notices and statements featured on school homepages, even if they do not match my words</span>
+          </label>
 
           {formError && <p className="error" role="alert">{formError}</p>}
 
