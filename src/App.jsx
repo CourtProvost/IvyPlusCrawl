@@ -45,49 +45,143 @@ function AlertsSection({ data }) {
   const withHits = data.results.filter((r) => r.alerts && r.alerts.length > 0);
   const clear = data.results.filter((r) => r.status === "ok" && r.alerts.length === 0);
   const failed = data.results.filter((r) => r.status === "error");
+  const withFeatured = data.results.filter((r) => r.featured && r.featured.length > 0);
+  const withPages = data.results.filter((r) => (r.sections && r.sections.length > 0) || (r.missing && r.missing.length > 0));
   const names = (list) => list.map((r) => SCHOOL_BY_ID[r.schoolId].name).join(", ");
 
   return (
-    <section className="alerts" aria-label="Homepage alerts">
-      <h2>
-        Homepage alerts: {withHits.length === 0 ? "none found" : `${withHits.length} ${withHits.length === 1 ? "school" : "schools"}`}
-      </h2>
-      <p className="alerts-note">
-        Read directly from each school's front page just now, using your words and related words. Open the page to
-        confirm. Banners added after a page loads may not appear here.
-      </p>
-
-      {withHits.map((r) => {
-        const school = SCHOOL_BY_ID[r.schoolId];
-        return (
-          <article key={r.schoolId} className="alert-school">
-            <h3>
-              <a href={school.url} target="_blank" rel="noopener noreferrer">{school.name}</a>
-            </h3>
-            <ul>
-              {r.alerts.map((a) => (
-                <li key={a.text}>
-                  <p className="alert-text">{a.text}</p>
-                  <p className="alert-meta">
-                    {a.kind === "banner" ? "In an alert or banner area" : "In the page text"}. Matched “{a.matched}”.
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </article>
-        );
-      })}
-
-      {clear.length > 0 && (
-        <p className="alerts-clear">No matching text on the homepages of: {names(clear)}.</p>
-      )}
-      {failed.length > 0 && (
-        <p className="alerts-failed">
-          Could not read the homepage of: {failed.map((r) => `${SCHOOL_BY_ID[r.schoolId].name} (${r.message.replace(/\.$/, "")})`).join("; ")}.
-          Open these directly.
+    <>
+      <section className="alerts" aria-label="Homepage alerts">
+        <h2>
+          Homepage alerts: {withHits.length === 0 ? "none found" : `${withHits.length} ${withHits.length === 1 ? "school" : "schools"}`}
+        </h2>
+        <p className="alerts-note">
+          Read directly from each school's front page just now, using your words and related words. Open the page to
+          confirm. Banners added after a page loads may not appear here.
         </p>
+
+        {withHits.map((r) => {
+          const school = SCHOOL_BY_ID[r.schoolId];
+          return (
+            <article key={r.schoolId} className="alert-school">
+              <h3>
+                <a href={school.url} target="_blank" rel="noopener noreferrer">{school.name}</a>
+              </h3>
+              <ul>
+                {r.alerts.map((a) => (
+                  <li key={a.text}>
+                    <p className="alert-text">{a.text}</p>
+                    <p className="alert-meta">
+                      {a.kind === "banner" ? "In an alert or banner area" : "In the page text"}. Matched “{a.matched}”.
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          );
+        })}
+
+        {clear.length > 0 && (
+          <p className="alerts-clear">No matching text on the homepages of: {names(clear)}.</p>
+        )}
+        {failed.length > 0 && (
+          <p className="alerts-failed">
+            Could not read the homepage of: {failed.map((r) => `${SCHOOL_BY_ID[r.schoolId].name} (${r.message.replace(/\.$/, "")})`).join("; ")}.
+            Open these directly.
+          </p>
+        )}
+      </section>
+
+      {withFeatured.length > 0 && (
+        <section className="featured" aria-label="Featured on homepages">
+          <h2>Featured on homepages</h2>
+          <p className="alerts-note">
+            Notices and statements the schools link from their front pages, shown whether or not they match your search words.
+          </p>
+          {withFeatured.map((r) => {
+            const school = SCHOOL_BY_ID[r.schoolId];
+            return (
+              <article key={r.schoolId} className="alert-school">
+                <h3>
+                  <a href={school.url} target="_blank" rel="noopener noreferrer">{school.name}</a>
+                </h3>
+                <ul>
+                  {r.featured.map((f) => (
+                    <li key={f.url}>
+                      <a className="hit-title" href={f.url} target="_blank" rel="noopener noreferrer">{f.text}</a>
+                      <p className="alert-meta">{f.why === "banner" ? "In an alert or banner area" : "Linked from the front page"}</p>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            );
+          })}
+        </section>
       )}
-    </section>
+
+      {withPages.length > 0 && (
+        <section className="priority" aria-label="Priority pages">
+          <h2>Priority pages</h2>
+          <p className="alerts-note">
+            Provost, Statements, Communications and news, Community, and IT pages, read just now. Newest items first.
+            Dates are read from each page and can be wrong, so open the page to confirm.
+          </p>
+          {withPages.map((r) => {
+            const school = SCHOOL_BY_ID[r.schoolId];
+            const matchCount = (r.sections || []).reduce((n, s) => n + (s.matches ? s.matches.length : 0), 0);
+            return (
+              <details key={r.schoolId} className="priority-school" open={matchCount > 0}>
+                <summary>
+                  <span className="priority-name">{school.name}</span>
+                  <span className="school-count">
+                    {(r.sections || []).length} {(r.sections || []).length === 1 ? "page" : "pages"}
+                    {matchCount > 0 ? `, ${matchCount} ${matchCount === 1 ? "match" : "matches"}` : ""}
+                  </span>
+                </summary>
+
+                {(r.sections || []).map((s) => (
+                  <div key={s.url} className="priority-page">
+                    <h4>
+                      <a href={s.url} target="_blank" rel="noopener noreferrer">{s.label}</a>
+                      {s.pinned && <span className="pin"> pinned</span>}
+                    </h4>
+                    {s.status === "error" && <p className="error">{s.message}</p>}
+                    {s.matches && s.matches.length > 0 && (
+                      <ul className="priority-matches">
+                        {s.matches.map((a) => (
+                          <li key={a.text}>
+                            <strong>{a.text}</strong> <span className="alert-meta">Matched “{a.matched}”</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {s.status === "ok" && s.items.length === 0 && (
+                      <p className="none">No recent items could be read from this page.</p>
+                    )}
+                    {s.items.length > 0 && (
+                      <ul className="priority-items">
+                        {s.items.map((it) => (
+                          <li key={it.url}>
+                            <a href={it.url} target="_blank" rel="noopener noreferrer">{it.title}</a>
+                            <span className="alert-meta"> {it.date ? prettyDate(it.date) : "No date shown"}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+
+                {r.missing && r.missing.length > 0 && (
+                  <p className="alerts-failed">
+                    Not found automatically: {r.missing.join(", ")}. Pin these addresses in src/priorityPages.js.
+                  </p>
+                )}
+              </details>
+            );
+          })}
+        </section>
+      )}
+    </>
   );
 }
 
