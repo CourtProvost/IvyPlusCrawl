@@ -303,3 +303,10 @@ a:hover { color: var(--green); }
 .priority-items li, .priority-matches li { padding: 3px 0; max-width: 80ch; }
 .priority-matches { margin-bottom: 6px; padding: 6px 10px; background: var(--alert-bg); border-left: 4px solid var(--alert-line); }
  
+/* Trimmed key-page results */
+.check { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; font-size: 15px; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--green); flex: none; }
+details.alerts-clear { margin: 14px 0 0; font-size: 14px; }
+details.alerts-clear summary { cursor: pointer; font-weight: 600; }
+.clear-list { margin: 8px 0 0; padding-left: 20px; }
+ 
