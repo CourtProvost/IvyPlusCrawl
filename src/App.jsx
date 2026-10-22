@@ -62,6 +62,16 @@ export default function App() {
     return "";
   }
 
+  async function readReply(resp) {
+    const text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      const slow = resp.status === 504 || /timeout|took too long/i.test(text);
+      return { error: slow ? "The search took too long for this school." : `The server sent an unexpected reply (${resp.status}).` };
+    }
+  }
+
   async function runSearch(termOverride) {
     const term = (termOverride ?? query).trim();
     setLoading(true);
@@ -73,20 +83,38 @@ export default function App() {
         ? { from: toISODate(daysAgo(3)), to: todayISO }
         : { from, to };
 
-    try {
-      const resp = await fetch("/api/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: term, schoolIds: [...selected], ...range }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "The search failed.");
-      setResponse({ ...data, mode: dateMode });
-    } catch (err) {
-      setFatal(err.message || "The search failed. Try again in a moment.");
-    } finally {
-      setLoading(false);
+    // One request per school keeps each call short enough to finish in time.
+    const ids = ALL_SCHOOLS.map((s) => s.id).filter((id) => selected.has(id));
+    const base = { query: term, from: range.from, to: range.to, mode: dateMode };
+    const done = {};
+    setResponse({ ...base, results: [] });
+
+    let next = 0;
+    async function worker() {
+      while (next < ids.length) {
+        const id = ids[next++];
+        let result;
+        try {
+          const resp = await fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: term, schoolIds: [id], ...range }),
+          });
+          const data = await readReply(resp);
+          result =
+            resp.ok && data.results?.[0]
+              ? data.results[0]
+              : { schoolId: id, status: "error", message: data.error || "The search failed.", items: [] };
+        } catch {
+          result = { schoolId: id, status: "error", message: "The search could not be reached.", items: [] };
+        }
+        done[id] = result;
+        setResponse({ ...base, results: ids.filter((i) => done[i]).map((i) => done[i]) });
+      }
     }
+
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    setLoading(false);
   }
 
   function onSubmit(e, termOverride) {
@@ -196,7 +224,12 @@ export default function App() {
         </form>
 
         <section aria-live="polite" className="results">
-          {loading && <p className="status">Checking {selected.size} official {selected.size === 1 ? "website" : "websites"}.</p>}
+          {loading && (
+            <p className="status">
+              Checking official websites. {response ? response.results.length : 0} of {selected.size} finished.
+              Each school can take up to a minute.
+            </p>
+          )}
 
           {fatal && <p className="error" role="alert">{fatal}</p>}
 
@@ -208,7 +241,6 @@ export default function App() {
                 </h2>
                 <p>
                   Posted {prettyDate(response.from)} to {prettyDate(response.to)}. Official school domains only.
-                  {response.cached && " Showing results saved within the last 10 minutes."}
                 </p>
                 {response.mode === "custom" && (
                   <p className="banner">
