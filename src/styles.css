@@ -13,15 +13,15 @@
   --alert-bg: #fff4dc;
   --alert-line: #e0a21b;
   --error: #9b2c1f;
-
+ 
   --font-display: "Hanover", "Trump Mediaeval", Georgia, "Times New Roman", serif;
   --font-body: "Public Sans", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
 }
-
+ 
 * { box-sizing: border-box; }
-
+ 
 html, body { margin: 0; }
-
+ 
 body {
   font-family: var(--font-body);
   font-size: 16px;
@@ -29,15 +29,15 @@ body {
   color: var(--green-deep);
   background: var(--paper);
 }
-
+ 
 a { color: var(--river); }
 a:hover { color: var(--green); }
-
+ 
 :focus-visible {
   outline: 3px solid var(--bonfire);
   outline-offset: 2px;
 }
-
+ 
 /* Masthead */
 .masthead {
   background: var(--green);
@@ -68,28 +68,28 @@ a:hover { color: var(--green); }
   font-size: 17px;
   color: #dcebe3;
 }
-
+ 
 /* Layout */
 .shell { min-height: 100vh; display: flex; flex-direction: column; }
 .main { flex: 1; width: 100%; max-width: 1040px; margin: 0 auto; padding: 28px 24px 40px; }
-
+ 
 .panel {
   background: var(--green-tint);
   border: 1px solid var(--line);
   border-left: 6px solid var(--green);
   padding: 22px;
 }
-
+ 
 .grid {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.6fr) minmax(200px, 0.9fr);
   gap: 18px;
   align-items: end;
 }
-
+ 
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .label { font-weight: 600; font-size: 15px; }
-
+ 
 .input, .field-button {
   width: 100%;
   min-height: 44px;
@@ -101,7 +101,7 @@ a:hover { color: var(--green); }
   border-radius: 3px;
 }
 .input:hover, .field-button:hover { border-color: var(--green); }
-
+ 
 .field-button {
   display: flex;
   align-items: center;
@@ -118,7 +118,7 @@ a:hover { color: var(--green); }
   border-right: 5px solid transparent;
   border-top: 6px solid var(--green);
 }
-
+ 
 /* School picker */
 .picker { position: relative; }
 .picker-panel {
@@ -148,7 +148,7 @@ a:hover { color: var(--green); }
 .pick-item { padding-left: 42px; }
 .pick-count { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--granite); }
 .pick-list { list-style: none; margin: 0; padding: 0; }
-
+ 
 /* Date range */
 .range {
   display: flex;
@@ -161,10 +161,10 @@ a:hover { color: var(--green); }
 }
 .range .field { width: 190px; }
 .range-note { margin: 0; flex: 1 1 260px; font-size: 14px; color: var(--granite); }
-
+ 
 /* Actions */
 .actions { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: center; margin-top: 20px; }
-
+ 
 .primary, .secondary {
   min-height: 44px;
   padding: 10px 22px;
@@ -178,7 +178,7 @@ a:hover { color: var(--green); }
 .primary:disabled { opacity: 0.65; cursor: progress; }
 .secondary { color: var(--green); background: var(--white); border: 2px solid var(--green); }
 .secondary:hover { background: var(--green-tint); }
-
+ 
 .quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .quick-label { font-size: 14px; color: var(--granite); margin-right: 2px; }
 .chip {
@@ -193,13 +193,13 @@ a:hover { color: var(--green); }
 }
 .chip:hover:not(:disabled) { border-color: var(--green); background: var(--green-tint); }
 .chip:disabled { opacity: 0.55; cursor: progress; }
-
+ 
 .error { margin: 14px 0 0; color: var(--error); font-weight: 600; }
-
+ 
 /* Results */
 .results { margin-top: 30px; }
 .status { color: var(--granite); }
-
+ 
 .summary h2 { margin: 0 0 4px; font-family: var(--font-display); font-size: 28px; line-height: 1.2; }
 .summary p { margin: 0; color: var(--granite); }
 .banner {
@@ -209,7 +209,7 @@ a:hover { color: var(--green); }
   background: var(--alert-bg);
   border-left: 5px solid var(--alert-line);
 }
-
+ 
 .school { margin-top: 22px; border-top: 3px solid var(--green); padding-top: 8px; }
 .school-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .school-head h3 { margin: 0; font-family: var(--font-display); font-size: 22px; }
@@ -217,14 +217,14 @@ a:hover { color: var(--green); }
 .school-head h3 a:hover { text-decoration: underline; }
 .school-count { font-size: 14px; color: var(--granite); white-space: nowrap; }
 .none { color: var(--granite); margin: 6px 0 0; }
-
+ 
 .hits { list-style: none; margin: 8px 0 0; padding: 0; }
 .hits li { padding: 12px 0; border-bottom: 1px solid var(--line); max-width: 80ch; }
 .hit-title { font-weight: 700; font-size: 17px; }
 .hit-url { margin: 2px 0 4px; font-size: 13px; color: var(--granite); overflow-wrap: anywhere; }
 .hit-desc { margin: 0; }
 .hit-age { margin: 4px 0 0; font-size: 13px; color: var(--granite); }
-
+ 
 /* Warning dialog */
 .overlay {
   position: fixed;
@@ -245,7 +245,7 @@ a:hover { color: var(--green); }
 .dialog h2 { margin: 0 0 8px; font-family: var(--font-display); font-size: 24px; }
 .dialog p { margin: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; }
-
+ 
 .footer {
   padding: 18px 24px 26px;
   text-align: center;
@@ -253,13 +253,34 @@ a:hover { color: var(--green); }
   color: var(--granite);
   border-top: 1px solid var(--line);
 }
-
+ 
 @media (max-width: 820px) {
   .grid { grid-template-columns: 1fr; }
   .masthead-inner, .main { padding-left: 16px; padding-right: 16px; }
   .panel { padding: 16px; }
 }
-
+ 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+ 
+/* Homepage alerts */
+.alerts {
+  margin-bottom: 28px;
+  padding: 18px 20px;
+  background: var(--alert-bg);
+  border: 1px solid var(--alert-line);
+  border-left: 8px solid var(--bonfire);
+}
+.alerts h2 { margin: 0 0 4px; font-family: var(--font-display); font-size: 26px; line-height: 1.2; }
+.alerts-note { margin: 0 0 12px; font-size: 14px; color: var(--granite); max-width: 80ch; }
+.alert-school { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--alert-line); }
+.alert-school h3 { margin: 0 0 4px; font-family: var(--font-display); font-size: 20px; }
+.alert-school h3 a { color: var(--green-deep); }
+.alert-school ul { list-style: none; margin: 0; padding: 0; }
+.alert-school li { padding: 6px 0; max-width: 80ch; }
+.alert-text { margin: 0; font-weight: 600; }
+.alert-meta { margin: 2px 0 0; font-size: 13px; color: var(--granite); }
+.alerts-clear, .alerts-failed { margin: 14px 0 0; font-size: 14px; }
+.alerts-failed { color: var(--error); }
+ 
