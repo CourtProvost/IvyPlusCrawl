@@ -18,7 +18,7 @@ brown: {
 	provost: "https://provost.brown.edu/",
 	it: "https://it.brown.edu/",
 	news: "https://www.brown.edu/news",
-	communications: "https://provost.brown.edu/communications",
+	statements: "https://provost.brown.edu/communications",
 },
 columbia: {
 	provost: "https://provost.columbia.edu/",
@@ -43,7 +43,7 @@ harvard: {
 	it: "https://www.huit.harvard.edu/",
 	news: "https://news.harvard.edu/gazette/", 
 	statements: "https://provost.harvard.edu/pages/reports",
-	press releases: "https://www.harvard.edu/media-relations/category/press-releases/",
+	releases: "https://www.harvard.edu/media-relations/category/press-releases/",
 },
 mit: {
 	provost: "https://provost.mit.edu/",
@@ -67,8 +67,8 @@ stanford: {
 	provost: "https://provost.stanford.edu/",
 	it: "https://uit.stanford.edu/",
 	news: "https://news.stanford.edu/",
-	university statement: "https://news.stanford.edu/university-news/topic/university-statement",
-	community message: "https://news.stanford.edu/university-news/topic/university-statement",
+	statements: "https://news.stanford.edu/university-news/topic/university-statement",
+	community: "https://news.stanford.edu/university-news/topic/university-statement",
 },
 uchicago: {
 	it: "https://it.uchicago.edu/",
