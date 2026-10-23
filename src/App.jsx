@@ -8,7 +8,7 @@ const QUICK_SEARCHES = [
   "network outage",
   "weather warning",
   "campus closed",
-  "statement to the community",
+  "urgent communication",
 ];
 
 function toISODate(d) {
@@ -90,9 +90,16 @@ function AlertsSection({ data }) {
               <ul>
                 {matchesOf(r).map((a) => (
                   <li key={a.where + a.text}>
-                    <p className="alert-text">{a.text}</p>
+                    <p className="alert-text">
+                      {a.itemUrl ? <a href={a.itemUrl} target="_blank" rel="noopener noreferrer">{a.text}</a> : a.text}
+                    </p>
                     <p className="alert-meta">
-                      On the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a> page. Matched “{a.matched}”{a.also ? ` and “${a.also}”` : ""}.
+                      {a.kind === "feed" ? (
+                        <>In the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a>{a.date ? `, posted ${prettyDate(a.date)}` : ""}. </>
+                      ) : (
+                        <>On the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a> page. </>
+                      )}
+                      Matched “{a.matched}”{a.also ? ` and “${a.also}”` : ""}.
                     </p>
                   </li>
                 ))}
@@ -241,7 +248,7 @@ export default function App() {
     fetch("/api/alerts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, narrow: narrow.trim(), schoolIds: ids, includeFeatured: showFeatured }),
+      body: JSON.stringify({ query: term, narrow: narrow.trim(), schoolIds: ids, includeFeatured: showFeatured, from: range.from, to: range.to }),
     })
       .then(async (resp) => {
         const data = await readReply(resp);
