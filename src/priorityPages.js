@@ -19,7 +19,6 @@ brown: {
 	it: "https://it.brown.edu/",
 	news: "https://www.brown.edu/news",
 	communications: "https://provost.brown.edu/communications",
-
 },
 columbia: {
 	provost: "https://provost.columbia.edu/",
