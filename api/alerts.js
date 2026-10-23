@@ -267,12 +267,47 @@ const CATEGORIES = [
     text: (t) => /community/i.test(t),
   },
   {
+    id: "releases",
+    label: "Press releases",
+    href: /press-releases?|\/releases?\b|news-releases?/i,
+    text: (t) => /press releases?|news releases?|^releases$/i.test(t),
+  },
+  {
     id: "it",
     label: "IT",
     href: /information-technology|technology-services|it-services|\/\/its?\.|huit|\/\/uis\.|\/\/status\.|service-status/i,
     text: (t) => /\b(IT|ITS|HUIT|UIS)\b/.test(t) || /information technology|technology services|systems? status|service status/i.test(t),
   },
 ];
+ 
+// Pinned pages may use a few friendly names. Anything unrecognized is reported on screen, not ignored.
+const PIN_ALIASES = {
+  news: "communications",
+  communication: "communications",
+  comms: "communications",
+  statement: "statements",
+  release: "releases",
+  "press-releases": "releases",
+  "press releases": "releases",
+  press: "releases",
+};
+const NORMALIZED_PINS = {};
+const PIN_WARNINGS = [];
+for (const [schoolId, cats] of Object.entries(PINNED)) {
+  if (!SCHOOL_BY_ID[schoolId]) {
+    PIN_WARNINGS.push(`School id "${schoolId}" is not recognized and was ignored.`);
+    continue;
+  }
+  NORMALIZED_PINS[schoolId] = {};
+  for (const [key, value] of Object.entries(cats || {})) {
+    const id = PIN_ALIASES[key.toLowerCase()] || key.toLowerCase();
+    if (!CATEGORIES.some((c) => c.id === id)) {
+      PIN_WARNINGS.push(`${schoolId}: the category "${key}" is not recognized and was ignored.`);
+      continue;
+    }
+    NORMALIZED_PINS[schoolId][id] = value;
+  }
+}
  
 export function discoverCategories(html, base, domain) {
   const anchors = allAnchors(html, base, domain).filter((a) => a.text.length <= 120);
@@ -342,7 +377,7 @@ async function readPriorityPage(cat, url, school, terms, narrow, pinned) {
  
 async function checkOneSchool(school, terms, narrow, includeFeatured) {
   const home = await fetchPage(school.url, school.domain);
-  const pinnedForSchool = PINNED[school.id] || {};
+  const pinnedForSchool = NORMALIZED_PINS[school.id] || {};
  
   // Choose pages: pinned first, then whatever the front page links to.
   const discovered = home.ok ? discoverCategories(home.html, home.finalUrl, school.domain) : {};
@@ -409,7 +444,7 @@ export default async function handler(req, res) {
   }
  
   const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, narrow, includeFeatured)));
-  const payload = { query: query.trim(), narrow: narrowWords, checkedAt: new Date().toISOString(), terms, results };
+  const payload = { query: query.trim(), pinWarnings: PIN_WARNINGS, narrow: narrowWords, checkedAt: new Date().toISOString(), terms, results };
  
   if (results.every((r) => r.status === "ok")) {
     cache.set(cacheKey, { at: Date.now(), payload });
@@ -419,3 +454,4 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).json({ ...payload, cached: false });
 }
+ 
