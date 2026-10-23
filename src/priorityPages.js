@@ -85,3 +85,5 @@ yale: {
 	statements: "https://president.yale.edu/from-president-mcinnis/statements",
 },
 };
+export const FEEDS = {};
+
