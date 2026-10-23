@@ -58,10 +58,12 @@ function AlertsSection({ data }) {
   // Anything that could not be read, so a missing match is never mistaken for an all clear.
   const problems = [];
   data.results.forEach((r) => {
-    if (r.status === "error") problems.push(`${nameOf(r)} homepage (${r.message.replace(/^The homepage /, "").replace(/\.$/, "")})`);
-    sectionsOf(r).filter((s) => s.status === "error").forEach((s) =>
-      problems.push(`${nameOf(r)} ${s.label} page (${s.message.replace(/^The page /, "").replace(/\.$/, "")})`)
-    );
+    if (r.status === "error") {
+      problems.push({ key: r.schoolId + "-home", name: nameOf(r), where: "Homepage", url: SCHOOL_BY_ID[r.schoolId].url, message: r.message });
+    }
+    sectionsOf(r)
+      .filter((s) => s.status === "error")
+      .forEach((s) => problems.push({ key: r.schoolId + "-" + s.category, name: nameOf(r), where: s.label, url: s.url, message: s.message }));
   });
   const notFound = data.results.filter((r) => r.missing && r.missing.length > 0);
 
@@ -75,6 +77,7 @@ function AlertsSection({ data }) {
           Read directly just now from each school's front page and its Provost, Statements, Communications and news,
           Community, and IT pages, looking only for your words and related words. Open the page to confirm.
           Content added after a page loads may not appear here.
+          {data.narrow && data.narrow.length > 0 ? ` Only lines that also mention: ${data.narrow.join(", ")}.` : ""}
         </p>
 
         {withHits.map((r) => {
@@ -89,7 +92,7 @@ function AlertsSection({ data }) {
                   <li key={a.where + a.text}>
                     <p className="alert-text">{a.text}</p>
                     <p className="alert-meta">
-                      On the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a> page. Matched “{a.matched}”.
+                      On the <a href={a.url} target="_blank" rel="noopener noreferrer">{a.where}</a> page. Matched “{a.matched}”{a.also ? ` and “${a.also}”` : ""}.
                     </p>
                   </li>
                 ))}
@@ -112,7 +115,16 @@ function AlertsSection({ data }) {
         )}
 
         {problems.length > 0 && (
-          <p className="alerts-failed">Could not read: {problems.join("; ")}. Open these directly.</p>
+          <div className="alerts-failed">
+            <p>Could not read these pages. Nothing was checked there, so this is not an all clear.</p>
+            <ul className="clear-list">
+              {problems.map((p) => (
+                <li key={p.key}>
+                  <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}, {p.where}</a>: {p.message} Open this site directly.
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {notFound.length > 0 && (
@@ -161,6 +173,7 @@ function AlertsSection({ data }) {
 export default function App() {
   const [selected, setSelected] = useState(() => new Set(ALL_SCHOOLS.map((s) => s.id)));
   const [query, setQuery] = useState("");
+  const [narrow, setNarrow] = useState("");
   const [dateMode, setDateMode] = useState("recent"); // "recent" | "custom"
   const [from, setFrom] = useState(toISODate(daysAgo(30)));
   const [to, setTo] = useState(toISODate(new Date()));
@@ -214,7 +227,7 @@ export default function App() {
 
     // One request per school keeps each call short enough to finish in time.
     const ids = ALL_SCHOOLS.map((s) => s.id).filter((id) => selected.has(id));
-    const base = { query: term, from: range.from, to: range.to, mode: dateMode };
+    const base = { query: term, narrow: narrow.trim(), from: range.from, to: range.to, mode: dateMode };
     const done = {};
     setResponse({ ...base, results: [] });
 
@@ -224,7 +237,7 @@ export default function App() {
     fetch("/api/alerts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: term, schoolIds: ids, includeFeatured: showFeatured }),
+      body: JSON.stringify({ query: term, narrow: narrow.trim(), schoolIds: ids, includeFeatured: showFeatured }),
     })
       .then(async (resp) => {
         const data = await readReply(resp);
@@ -244,7 +257,7 @@ export default function App() {
           const resp = await fetch("/api/search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: term, schoolIds: [id], ...range }),
+            body: JSON.stringify({ query: term, narrow: narrow.trim(), schoolIds: [id], ...range }),
           });
           const data = await readReply(resp);
           result =
@@ -323,6 +336,23 @@ export default function App() {
             </div>
 
             <div className="field">
+              <label className="label" htmlFor="narrow">Narrow by (optional)</label>
+              <input
+                id="narrow"
+                className="input"
+                type="text"
+                value={narrow}
+                maxLength={100}
+                placeholder="For example: PHP"
+                aria-describedby="narrow-help"
+                onChange={(e) => setNarrow(e.target.value)}
+              />
+              <span id="narrow-help" className="help">
+                Results must also mention one of these words. Separate several with commas.
+              </span>
+            </div>
+
+            <div className="field">
               <label className="label" htmlFor="dates">Posted within</label>
               <select
                 id="dates"
@@ -395,7 +425,7 @@ export default function App() {
                     : `${totalHits} ${totalHits === 1 ? "match" : "matches"} for “${response.query}”`}
                 </h2>
                 <p>
-                  Posted {prettyDate(response.from)} to {prettyDate(response.to)}. Official school domains only.
+                  {response.narrow ? `Narrowed to results that also mention: ${response.narrow}. ` : ""}Posted {prettyDate(response.from)} to {prettyDate(response.to)}. Official school domains only.
                 </p>
                 {response.mode === "custom" && (
                   <p className="banner">
