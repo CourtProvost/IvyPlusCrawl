@@ -25,10 +25,10 @@ columbia: {
 	provost: "https://provost.columbia.edu/",
 	news: "https://news.columbia.edu/",
 	it: "https://www.cuit.columbia.edu/",
-	statements: "https://provost.columbia.edu/content/news-and-announcements#!#views-display-10040",
+	statements: "https://news.columbia.edu/content/university-news",
 },
 cornell: {
-	it: "https://it.cornell.edu/",
+	it: "https://uit.stanford.edu/news/service-spotlights",
 	news: "https://news.cornell.edu/", 
 	statements: "https://statements.cornell.edu/",
 	provost: "https://provost.cornell.edu/",
@@ -40,8 +40,7 @@ dartmouth: {
 	news: "https://home.dartmouth.edu/news",
 },
 harvard: {
-	provost: "https://provost.harvard.edu/",
-	it: "https://www.huit.harvard.edu/",
+	it: "https://status.huit.harvard.edu/",
 	news: "https://news.harvard.edu/gazette/", 
 	statements: "https://provost.harvard.edu/pages/reports",
 	releases: "https://www.harvard.edu/media-relations/category/press-releases/",
