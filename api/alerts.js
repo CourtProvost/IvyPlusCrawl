@@ -16,6 +16,7 @@
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
 import { PINNED } from "../src/priorityPages.js";
+import { parseNarrow, buildNarrowMatcher } from "../src/narrow.js";
  
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
@@ -171,26 +172,44 @@ const BANNER_OPEN =
   /<(?:div|section|aside|header|p|span|a|li)\b[^>]*\b(?:class|id|role|aria-label)\s*=\s*["'][^"']*(?:alert|banner|emergency|notice|announcement|urgent|advisory)[^"']*["'][^>]*>/gi;
 const NOT_A_NOTICE = /cookie|consent|privacy|gdpr|skip|search|newsletter/i;
  
-export function analyzeHtml(html, terms) {
+export function analyzeHtml(html, terms, narrow = null) {
   const match = buildMatcher(terms);
   const found = new Map();
  
-  const add = (line, kind) => {
+  // A line counts when it matches the search words and, if narrowing words were given, the same
+  // line (or, inside an alert or banner area, the same banner) also contains one of them.
+  const add = (line, kind, context) => {
     if (line.length < 15 || line.length > 400) return;
     const matched = match(line);
     if (!matched) return;
+    let also = null;
+    if (narrow) {
+      also = narrow(context);
+      if (!also) return;
+    }
     const prev = found.get(line);
-    if (!prev || (kind === "banner" && prev.kind !== "banner")) found.set(line, { text: line, kind, matched });
+    if (!prev || (kind === "banner" && prev.kind !== "banner")) found.set(line, { text: line, kind, matched, also });
   };
  
+  const lower = html.toLowerCase();
   const re = new RegExp(BANNER_OPEN.source, "gi");
   let m;
   while ((m = re.exec(html)) !== null) {
     if (NOT_A_NOTICE.test(m[0])) continue;
-    const chunk = html.slice(m.index + m[0].length, m.index + m[0].length + 1500);
-    htmlToLines(chunk).slice(0, 6).forEach((l) => add(l, "banner"));
+    // Read the banner area only: stop at its closing tag when there is one nearby.
+    const start = m.index + m[0].length;
+    const tag = (m[0].match(/^<([a-z0-9]+)/i) || [])[1];
+    let end = start + 1500;
+    if (tag) {
+      const close = lower.indexOf("</" + tag.toLowerCase(), start);
+      if (close !== -1) end = Math.min(end, close);
+    }
+    const lines = htmlToLines(html.slice(start, end)).slice(0, 6);
+    const context = lines.join(" ");
+    lines.forEach((l) => add(l, "banner", context));
   }
-  htmlToLines(html).forEach((l) => add(l, "page"));
+  const lines = htmlToLines(html);
+  lines.forEach((l) => add(l, "page", l));
  
   return [...found.values()]
     .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "banner" ? -1 : 1))
@@ -296,7 +315,7 @@ async function fetchPage(url, domain) {
     if (!resp.ok) {
       return {
         ok: false,
-        message: `The page returned ${resp.status}${resp.status === 403 ? " (the site may block automated reading)" : ""}.`,
+        message: `Returned ${resp.status} error.${resp.status === 403 ? " The site may block automated reading." : ""}`,
       };
     }
     const html = (await resp.text()).slice(0, MAX_HTML_CHARS);
@@ -308,7 +327,7 @@ async function fetchPage(url, domain) {
   }
 }
  
-async function readPriorityPage(cat, url, school, terms, pinned) {
+async function readPriorityPage(cat, url, school, terms, narrow, pinned) {
   const page = await fetchPage(url, school.domain);
   if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, matches: [] };
   return {
@@ -317,11 +336,11 @@ async function readPriorityPage(cat, url, school, terms, pinned) {
     url,
     pinned,
     status: "ok",
-    matches: analyzeHtml(page.html, terms).slice(0, 3),
+    matches: analyzeHtml(page.html, terms, narrow).slice(0, 3),
   };
 }
  
-async function checkOneSchool(school, terms, includeFeatured) {
+async function checkOneSchool(school, terms, narrow, includeFeatured) {
   const home = await fetchPage(school.url, school.domain);
   const pinnedForSchool = PINNED[school.id] || {};
  
@@ -330,13 +349,14 @@ async function checkOneSchool(school, terms, includeFeatured) {
   const plan = [];
   const missing = [];
   for (const cat of CATEGORIES) {
+    if (pinnedForSchool[cat.id] === null) continue; // marked as not applicable for this school
     const pins = [].concat(pinnedForSchool[cat.id] || []).filter((u) => hostBelongsToDomain(u, school.domain));
     if (pins.length) pins.forEach((u) => plan.push({ cat, url: u, pinned: true }));
     else if (discovered[cat.id]) plan.push({ cat, url: discovered[cat.id], pinned: false });
     else missing.push(cat.label);
   }
  
-  const sections = await Promise.all(plan.map((p) => readPriorityPage(p.cat, p.url, school, terms, p.pinned)));
+  const sections = await Promise.all(plan.map((p) => readPriorityPage(p.cat, p.url, school, terms, narrow, p.pinned)));
  
   if (!home.ok) {
     return {
@@ -353,7 +373,7 @@ async function checkOneSchool(school, terms, includeFeatured) {
   return {
     schoolId: school.id,
     status: "ok",
-    alerts: analyzeHtml(home.html, terms),
+    alerts: analyzeHtml(home.html, terms, narrow),
     featured: includeFeatured ? featuredLinks(home.html, home.finalUrl, school.domain) : [],
     sections,
     missing,
@@ -368,6 +388,11 @@ export default async function handler(req, res) {
  
   const { query, schoolIds } = req.body || {};
   const includeFeatured = req.body?.includeFeatured === true;
+  if (req.body?.narrow !== undefined && (typeof req.body.narrow !== "string" || req.body.narrow.length > 100)) {
+    return res.status(400).json({ error: "Narrowing words must be 100 characters or fewer." });
+  }
+  const narrowWords = parseNarrow(req.body?.narrow);
+  const narrow = buildNarrowMatcher(narrowWords);
   if (typeof query !== "string" || query.trim().length < 2 || query.length > 100) {
     return res.status(400).json({ error: "Enter a search term between 2 and 100 characters." });
   }
@@ -377,14 +402,14 @@ export default async function handler(req, res) {
  
   const ids = [...new Set(schoolIds)].sort();
   const terms = expandTerms(query);
-  const cacheKey = JSON.stringify([terms, ids, includeFeatured]);
+  const cacheKey = JSON.stringify([terms, ids, includeFeatured, narrowWords]);
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return res.status(200).json({ ...hit.payload, cached: true });
   }
  
-  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, includeFeatured)));
-  const payload = { query: query.trim(), checkedAt: new Date().toISOString(), terms, results };
+  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, narrow, includeFeatured)));
+  const payload = { query: query.trim(), narrow: narrowWords, checkedAt: new Date().toISOString(), terms, results };
  
   if (results.every((r) => r.status === "ok")) {
     cache.set(cacheKey, { at: Date.now(), payload });
@@ -394,4 +419,3 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).json({ ...payload, cached: false });
 }
- 
