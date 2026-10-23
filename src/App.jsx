@@ -75,7 +75,7 @@ function AlertsSection({ data }) {
         </h2>
         <p className="alerts-note">
           Read directly just now from each school's front page and its Provost, Statements, Communications and news,
-          Community, and IT pages, looking only for your words and related words. Open the page to confirm.
+          Community, Press releases, and IT pages, looking only for your words and related words. Open the page to confirm.
           Content added after a page loads may not appear here.
           {data.narrow && data.narrow.length > 0 ? ` Only lines that also mention: ${data.narrow.join(", ")}.` : ""}
         </p>
@@ -125,6 +125,10 @@ function AlertsSection({ data }) {
               ))}
             </ul>
           </div>
+        )}
+
+        {data.pinWarnings && data.pinWarnings.length > 0 && (
+          <p className="alerts-failed">Check src/priorityPages.js: {data.pinWarnings.join(" ")}</p>
         )}
 
         {notFound.length > 0 && (
