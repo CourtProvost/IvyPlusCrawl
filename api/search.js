@@ -14,6 +14,7 @@
 // Vercel settings: DARTMOUTH_CHAT_API_KEY (required), DARTMOUTH_CHAT_MODEL (optional).
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
+import { parseNarrow } from "../src/narrow.js";
  
 const API_URL = "https://chat.dartmouth.edu/api/chat/completions";
 const MODEL = process.env.DARTMOUTH_CHAT_MODEL || "google.gemma-4-31B-it";
@@ -45,6 +46,9 @@ function validate(body) {
   }
   if (from > to) return "The start date must be on or before the end date.";
   if (to > today()) return "The end date cannot be in the future.";
+  if (body.narrow !== undefined && (typeof body.narrow !== "string" || body.narrow.length > 100)) {
+    return "Narrowing words must be 100 characters or fewer.";
+  }
   return null;
 }
  
@@ -95,12 +99,14 @@ function parseItems(text) {
   }
 }
  
-async function searchOneSchool(school, query, from, to) {
+async function searchOneSchool(school, query, narrowWords, from, to) {
   const prompt =
-    `Search the web for: ${query.trim()} site:${school.domain}\n\n` +
+    `Search the web for: ${query.trim()}${narrowWords.length ? " " + narrowWords.join(" ") : ""} site:${school.domain}\n\n` +
     `Using only what the search returns, list pages on ${school.domain} (including its subdomains) about this topic ` +
     `that were posted between ${from} and ${to}. Take each posting date from the page itself and never guess one; ` +
-    `use null when no date is shown. Do not invent pages or links. Give extra weight to pages from provost, president or university statement, communications and news, community update, and IT status sections.\n` +
+    `use null when no date is shown. Do not invent pages or links. ` +
+    (narrowWords.length ? `Only include pages that also mention at least one of these words or word forms: ${narrowWords.join(", ")}. ` : "") +
+    `Give extra weight to pages from provost, president or university statement, communications and news, community update, and IT status sections.\n` +
     `Reply with a JSON array only, no other text, with at most ${MAX_ITEMS} objects shaped like:\n` +
     `{"title": string, "url": string, "summary": string (one short sentence), "published": "YYYY-MM-DD" or null}\n` +
     `If nothing matches, reply with [].`;
@@ -210,18 +216,20 @@ export default async function handler(req, res) {
   if (problem) return res.status(400).json({ error: problem });
  
   const { query, schoolIds, from, to } = req.body;
+  const narrowWords = parseNarrow(req.body.narrow);
   const ids = [...new Set(schoolIds)].sort();
-  const cacheKey = JSON.stringify([query.trim().toLowerCase(), ids, from, to]);
+  const cacheKey = JSON.stringify([query.trim().toLowerCase(), narrowWords, ids, from, to]);
  
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return res.status(200).json({ ...hit.payload, cached: true });
   }
  
-  const results = await inBatches(ids, (id) => searchOneSchool(SCHOOL_BY_ID[id], query, from, to));
+  const results = await inBatches(ids, (id) => searchOneSchool(SCHOOL_BY_ID[id], query, narrowWords, from, to));
  
   const payload = {
     query: query.trim(),
+    narrow: narrowWords,
     from,
     to,
     searchedAt: new Date().toISOString(),
