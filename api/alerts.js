@@ -15,7 +15,7 @@
 // found automatically. Anything not found or not readable is reported, never hidden.
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
-import { PINNED } from "../src/priorityPages.js";
+import { PINNED, FEEDS } from "../src/priorityPages.js";
 import { parseNarrow, buildNarrowMatcher } from "../src/narrow.js";
  
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -65,7 +65,17 @@ const RELATED = [
     ],
   },
   {
-    triggers: ["emergency", "alert", "urgent", "safety"],
+    triggers: ["statement", "statements", "message", "communication", "communications", "urgent", "president", "provost", "trustees", "announcement"],
+    terms: [
+      "urgent communication", "urgent message", "statement from the president", "message from the president",
+      "statement from the provost", "message from the provost", "message to the community",
+      "message to the campus community", "statement to the community", "board of trustees",
+      "statement from the board", "important message", "community message", "campus message",
+      "update for the community", "letter to the community", "message from the board",
+    ],
+  },
+  {
+    triggers: ["emergency", "alert", "safety"],
     terms: ["emergency", "alert", "urgent", "campus safety", "safety alert", "important notice"],
   },
 ];
@@ -332,14 +342,14 @@ export function discoverCategories(html, base, domain) {
  
 // ---------------------------------------------------------------- fetching
  
-async function fetchPage(url, domain) {
+async function fetchPage(url, domain, accept = "text/html,application/xhtml+xml") {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const resp = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; IvyPlusPeerWatch/1.0; internal monitoring)",
-        Accept: "text/html,application/xhtml+xml",
+        Accept: accept,
       },
       redirect: "follow",
       signal: controller.signal,
@@ -362,6 +372,74 @@ async function fetchPage(url, domain) {
   }
 }
  
+// ---------------------------------------------------------------- feeds (RSS and Atom)
+ 
+function feedTag(block, name) {
+  const m = block.match(new RegExp("<" + name + "\\b[^>]*>([\\s\\S]*?)</" + name + ">", "i"));
+  return m ? m[1] : "";
+}
+ 
+function feedText(raw) {
+  const noCdata = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  return cleanInline(decodeEntities(noCdata));
+}
+ 
+export function parseFeed(xml) {
+  const items = [];
+  const blocks = xml.match(/<(item|entry)\b[\s\S]*?<\/\1>/gi) || [];
+  for (const b of blocks.slice(0, 60)) {
+    const title = feedText(feedTag(b, "title"));
+    let link = feedText(feedTag(b, "link"));
+    if (!/^https?:/i.test(link)) {
+      const m = b.match(/<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i);
+      link = m ? decodeEntities(m[1]) : "";
+    }
+    if (!link) {
+      const g = feedText(feedTag(b, "guid"));
+      if (/^https?:/i.test(g)) link = g;
+    }
+    const desc = feedText(
+      feedTag(b, "description") || feedTag(b, "summary") || feedTag(b, "content:encoded") || feedTag(b, "content")
+    );
+    const dateRaw = feedTag(b, "pubDate") || feedTag(b, "published") || feedTag(b, "updated") || feedTag(b, "dc:date");
+    const t = Date.parse(feedText(dateRaw));
+    items.push({ title, link, desc, date: Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10) });
+  }
+  return items;
+}
+ 
+export function analyzeFeed(xml, terms, narrow, from, to) {
+  const match = buildMatcher(terms);
+  const out = [];
+  for (const it of parseFeed(xml)) {
+    if (from && to && it.date && (it.date < from || it.date > to)) continue;
+    const text = `${it.title}. ${it.desc}`.slice(0, 1500);
+    const matched = match(text);
+    if (!matched) continue;
+    let also = null;
+    if (narrow) {
+      also = narrow(text);
+      if (!also) continue;
+    }
+    out.push({ text: it.title || it.link, kind: "feed", matched, also, itemUrl: it.link || null, date: it.date });
+  }
+  return out.slice(0, 5);
+}
+ 
+async function readFeed(feed, school, terms, narrow, from, to) {
+  const label = feed.label || "Feed";
+  const base = { category: "feed", label, url: feed.url, pinned: true };
+  if (!hostBelongsToDomain(feed.url, school.domain)) {
+    return { ...base, status: "error", message: "The feed address is not on the school's official domain.", matches: [] };
+  }
+  const page = await fetchPage(feed.url, school.domain, "application/rss+xml, application/atom+xml, application/xml, text/xml, */*");
+  if (!page.ok) return { ...base, status: "error", message: page.message, matches: [] };
+  if (!/<(rss|feed|rdf:RDF)\b/i.test(page.html.slice(0, 3000))) {
+    return { ...base, status: "error", message: "The address did not return an RSS or Atom feed.", matches: [] };
+  }
+  return { ...base, status: "ok", matches: analyzeFeed(page.html, terms, narrow, from, to) };
+}
+ 
 async function readPriorityPage(cat, url, school, terms, narrow, pinned) {
   const page = await fetchPage(url, school.domain);
   if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, matches: [] };
@@ -375,7 +453,7 @@ async function readPriorityPage(cat, url, school, terms, narrow, pinned) {
   };
 }
  
-async function checkOneSchool(school, terms, narrow, includeFeatured) {
+async function checkOneSchool(school, terms, narrow, includeFeatured, from, to) {
   const home = await fetchPage(school.url, school.domain);
   const pinnedForSchool = NORMALIZED_PINS[school.id] || {};
  
@@ -383,15 +461,33 @@ async function checkOneSchool(school, terms, narrow, includeFeatured) {
   const discovered = home.ok ? discoverCategories(home.html, home.finalUrl, school.domain) : {};
   const plan = [];
   const missing = [];
+  const used = new Set();
+  const norm = (u) => u.replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
   for (const cat of CATEGORIES) {
     if (pinnedForSchool[cat.id] === null) continue; // marked as not applicable for this school
     const pins = [].concat(pinnedForSchool[cat.id] || []).filter((u) => hostBelongsToDomain(u, school.domain));
-    if (pins.length) pins.forEach((u) => plan.push({ cat, url: u, pinned: true }));
-    else if (discovered[cat.id]) plan.push({ cat, url: discovered[cat.id], pinned: false });
-    else missing.push(cat.label);
+    if (pins.length) {
+      pins.forEach((u) => {
+        if (!used.has(norm(u))) {
+          used.add(norm(u));
+          plan.push({ cat, url: u, pinned: true });
+        }
+      });
+    } else if (discovered[cat.id]) {
+      // The same page can answer two categories (for example statements and press releases); read it once.
+      if (!used.has(norm(discovered[cat.id]))) {
+        used.add(norm(discovered[cat.id]));
+        plan.push({ cat, url: discovered[cat.id], pinned: false });
+      }
+    } else missing.push(cat.label);
   }
  
-  const sections = await Promise.all(plan.map((p) => readPriorityPage(p.cat, p.url, school, terms, narrow, p.pinned)));
+  const feedList = [].concat(FEEDS[school.id] || []).map((f) => (typeof f === "string" ? { url: f } : f));
+  const [pageSections, feedSections] = await Promise.all([
+    Promise.all(plan.map((p) => readPriorityPage(p.cat, p.url, school, terms, narrow, p.pinned))),
+    Promise.all(feedList.map((f) => readFeed(f, school, terms, narrow, from, to))),
+  ]);
+  const sections = [...pageSections, ...feedSections];
  
   if (!home.ok) {
     return {
@@ -428,6 +524,9 @@ export default async function handler(req, res) {
   }
   const narrowWords = parseNarrow(req.body?.narrow);
   const narrow = buildNarrowMatcher(narrowWords);
+  const okDate = (d) => (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null);
+  const from = okDate(req.body?.from);
+  const to = okDate(req.body?.to);
   if (typeof query !== "string" || query.trim().length < 2 || query.length > 100) {
     return res.status(400).json({ error: "Enter a search term between 2 and 100 characters." });
   }
@@ -437,13 +536,13 @@ export default async function handler(req, res) {
  
   const ids = [...new Set(schoolIds)].sort();
   const terms = expandTerms(query);
-  const cacheKey = JSON.stringify([terms, ids, includeFeatured, narrowWords]);
+  const cacheKey = JSON.stringify([terms, ids, includeFeatured, narrowWords, from, to]);
   const hit = cache.get(cacheKey);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
     return res.status(200).json({ ...hit.payload, cached: true });
   }
  
-  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, narrow, includeFeatured)));
+  const results = await Promise.all(ids.map((id) => checkOneSchool(SCHOOL_BY_ID[id], terms, narrow, includeFeatured, from, to)));
   const payload = { query: query.trim(), pinWarnings: PIN_WARNINGS, narrow: narrowWords, checkedAt: new Date().toISOString(), terms, results };
  
   if (results.every((r) => r.status === "ok")) {
