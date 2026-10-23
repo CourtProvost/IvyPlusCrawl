@@ -279,6 +279,7 @@ const CATEGORIES = [
   {
     id: "releases",
     label: "Press releases",
+    optional: true, // checked when pinned or found, never listed as missing
     href: /press-releases?|\/releases?\b|news-releases?/i,
     text: (t) => /press releases?|news releases?|^releases$/i.test(t),
   },
@@ -479,7 +480,7 @@ async function checkOneSchool(school, terms, narrow, includeFeatured, from, to) 
         used.add(norm(discovered[cat.id]));
         plan.push({ cat, url: discovered[cat.id], pinned: false });
       }
-    } else missing.push(cat.label);
+    } else if (!cat.optional) missing.push(cat.label);
   }
  
   const feedList = [].concat(FEEDS[school.id] || []).map((f) => (typeof f === "string" ? { url: f } : f));
