@@ -82,7 +82,7 @@ a:hover { color: var(--green); }
  
 .grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.6fr) minmax(200px, 0.9fr);
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 18px;
   align-items: end;
 }
@@ -309,4 +309,7 @@ a:hover { color: var(--green); }
 details.alerts-clear { margin: 14px 0 0; font-size: 14px; }
 details.alerts-clear summary { cursor: pointer; font-weight: 600; }
 .clear-list { margin: 8px 0 0; padding-left: 20px; }
+ 
+.help { font-size: 13px; color: var(--granite); }
+div.alerts-failed p { margin: 0; font-weight: 600; }
  
