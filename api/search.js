@@ -15,6 +15,7 @@
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
 import { parseNarrow } from "../src/narrow.js";
+import { expandTerms } from "./alerts.js";
  
 const API_URL = "https://chat.dartmouth.edu/api/chat/completions";
 const MODEL = process.env.DARTMOUTH_CHAT_MODEL || "google.gemma-4-31B-it";
@@ -100,11 +101,13 @@ function parseItems(text) {
 }
  
 async function searchOneSchool(school, query, narrowWords, from, to) {
+  const related = expandTerms(query).filter((t) => t !== query.trim().toLowerCase()).slice(0, 12);
   const prompt =
     `Search the web for: ${query.trim()}${narrowWords.length ? " " + narrowWords.join(" ") : ""} site:${school.domain}\n\n` +
     `Using only what the search returns, list pages on ${school.domain} (including its subdomains) about this topic ` +
     `that were posted between ${from} and ${to}. Take each posting date from the page itself and never guess one; ` +
     `use null when no date is shown. Do not invent pages or links. ` +
+    (related.length ? `Also count these related wordings as matches: ${related.join("; ")}. ` : "") +
     (narrowWords.length ? `Only include pages that also mention at least one of these words or word forms: ${narrowWords.join(", ")}. ` : "") +
     `Give extra weight to pages from provost, president or university statement, communications and news, community update, and IT status sections.\n` +
     `Reply with a JSON array only, no other text, with at most ${MAX_ITEMS} objects shaped like:\n` +
