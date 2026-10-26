@@ -15,7 +15,7 @@
 // found automatically. Anything not found or not readable is reported, never hidden.
  
 import { SCHOOL_BY_ID } from "../src/schools.js";
-import { PINNED, FEEDS } from "../src/priorityPages.js";
+import { PINNED, FEEDS, ALERTS } from "../src/priorityPages.js";
 import { parseNarrow, buildNarrowMatcher } from "../src/narrow.js";
  
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -137,14 +137,29 @@ function cleanInline(html) {
   return decodeEntities(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 }
  
+// "domain" can be one domain or a list of domains.
 function hostBelongsToDomain(url, domain) {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host === domain || host.endsWith("." + domain);
+    return [].concat(domain).some((d) => host === d || host.endsWith("." + d));
   } catch {
     return false;
   }
 }
+ 
+// Official pages that live on a host outside the school's main domain (alert services, IT status
+// tools). Only addresses on these hosts are allowed in addition to the school's own domain.
+const EXTRA_DOMAINS = {
+  brown: ["getrave.com"],
+  mit: ["mit.net"],
+  princeton: ["princeton.service-now.com"],
+  yale: ["yale.service-now.com"],
+};
+const domainsFor = (school) => [school.domain, ...(EXTRA_DOMAINS[school.id] || [])];
+ 
+// Pages from ALERTS in src/priorityPages.js, shown as their own sections.
+const EMERGENCY_CAT = { id: "emergency", label: "Emergency alerts" };
+const STATUS_CAT = { id: "status", label: "IT status" };
  
 const ANCHOR_RE = /<a\b[^>]*?href\s*=\s*["']([^"'][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
  
@@ -430,10 +445,10 @@ export function analyzeFeed(xml, terms, narrow, from, to) {
 async function readFeed(feed, school, terms, narrow, from, to) {
   const label = feed.label || "Feed";
   const base = { category: "feed", label, url: feed.url, pinned: true };
-  if (!hostBelongsToDomain(feed.url, school.domain)) {
+  if (!hostBelongsToDomain(feed.url, domainsFor(school))) {
     return { ...base, status: "error", message: "The feed address is not on the school's official domain.", matches: [] };
   }
-  const page = await fetchPage(feed.url, school.domain, "application/rss+xml, application/atom+xml, application/xml, text/xml, */*");
+  const page = await fetchPage(feed.url, domainsFor(school), "application/rss+xml, application/atom+xml, application/xml, text/xml, */*");
   if (!page.ok) return { ...base, status: "error", message: page.message, matches: [] };
   if (!/<(rss|feed|rdf:RDF)\b/i.test(page.html.slice(0, 3000))) {
     return { ...base, status: "error", message: "The address did not return an RSS or Atom feed.", matches: [] };
@@ -442,7 +457,7 @@ async function readFeed(feed, school, terms, narrow, from, to) {
 }
  
 async function readPriorityPage(cat, url, school, terms, narrow, pinned) {
-  const page = await fetchPage(url, school.domain);
+  const page = await fetchPage(url, domainsFor(school));
   if (!page.ok) return { category: cat.id, label: cat.label, url, pinned, status: "error", message: page.message, matches: [] };
   return {
     category: cat.id,
@@ -466,7 +481,7 @@ async function checkOneSchool(school, terms, narrow, includeFeatured, from, to) 
   const norm = (u) => u.replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase();
   for (const cat of CATEGORIES) {
     if (pinnedForSchool[cat.id] === null) continue; // marked as not applicable for this school
-    const pins = [].concat(pinnedForSchool[cat.id] || []).filter((u) => hostBelongsToDomain(u, school.domain));
+    const pins = [].concat(pinnedForSchool[cat.id] || []).filter((u) => hostBelongsToDomain(u, domainsFor(school)));
     if (pins.length) {
       pins.forEach((u) => {
         if (!used.has(norm(u))) {
@@ -482,6 +497,16 @@ async function checkOneSchool(school, terms, narrow, includeFeatured, from, to) 
       }
     } else if (!cat.optional) missing.push(cat.label);
   }
+ 
+  // Emergency alert pages and IT status pages from ALERTS.
+  const extra = ALERTS[school.id] || {};
+  const addExtra = (cat, u) => {
+    if (!u || used.has(norm(u))) return;
+    used.add(norm(u));
+    plan.push({ cat, url: u, pinned: true });
+  };
+  [].concat(extra.emergency || []).forEach((u) => addExtra(EMERGENCY_CAT, u));
+  addExtra(STATUS_CAT, extra.status);
  
   const feedList = [].concat(FEEDS[school.id] || []).map((f) => (typeof f === "string" ? { url: f } : f));
   const [pageSections, feedSections] = await Promise.all([
@@ -554,4 +579,5 @@ export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   return res.status(200).json({ ...payload, cached: false });
 }
+ 
  
