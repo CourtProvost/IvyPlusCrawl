@@ -75,7 +75,7 @@ function AlertsSection({ data }) {
         </h2>
         <p className="alerts-note">
           Read directly just now from each school's front page and its Provost, Statements, Communications and news,
-          Community, Press releases, and IT pages, looking only for your words and related words. Open the page to confirm.
+          Community, Press releases, IT, Emergency alerts, and IT status pages, looking only for your words and related words. Open the page to confirm.
           Content added after a page loads may not appear here.
           {data.narrow && data.narrow.length > 0 ? ` Only lines that also mention: ${data.narrow.join(", ")}.` : ""}
         </p>
